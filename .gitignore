@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+env/
+build/
+dist/
+
+# GCP / IDE
+.env
+.vscode/
+.idea/
+.gcloudignore
