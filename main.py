@@ -1,43 +1,43 @@
 import os
 import io
 import logging
-import functions_framework
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
 
 # ロギング設定
 logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
 
-# 環境変数（deploy.shまたはコンソールで設定）
-PROJECT_ID = os.environ.get("GCP_PROJECT_ID")
-DATASET_ID = os.environ.get("BQ_DATASET_ID", "airbnb_management")
-TABLE_ID = os.environ.get("BQ_TABLE_ID", "earnings_cleaned")
-
-@functions_framework.cloud_event
-def load_airbnb_csv_improved(cloud_event):
-    """GCSにアップロードされたAirbnbのCSVをBQへロードする"""
-    data = cloud_event.data
-    bucket_name = data['bucket']
-    file_name = data['name']
+def load_airbnb_csv_gen1(event, context):
+    """
+    Google Cloud Functions Gen 1 用
+    event: GCSのイベントデータ
+    context: イベントのメタデータ
+    """
+    bucket_name = event['bucket']
+    file_name = event['name']
     
-    logger.info(f"Processing: gs://{bucket_name}/{file_name}")
+    logging.info(f"Processing file: {file_name} from bucket: {bucket_name}")
 
     if not file_name.endswith('.csv'):
-        logger.info("Skipping non-CSV file.")
+        logging.info("Not a CSV file. Skipping.")
         return
 
+    # 環境変数の取得
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    dataset_id = os.environ.get("BQ_DATASET_ID", "airbnb_management")
+    table_id = os.environ.get("BQ_TABLE_ID", "earnings_cleaned")
+
     try:
-        # 1. GCSからファイル取得
+        # 1. GCSから読み込み
         storage_client = storage.Client()
         blob = storage_client.bucket(bucket_name).blob(file_name)
         content = blob.download_as_bytes()
 
-        # 2. Pandasでデータ整形
+        # 2. Pandasでクレンジング
         df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig')
-        
-        # カラムマッピング
+
+        # マッピング（ご提示のCSVヘッダーに準拠）
         COLUMN_MAP = {
             '日付': 'event_date',
             '入金予定日': 'payout_scheduled_date',
@@ -48,28 +48,30 @@ def load_airbnb_csv_improved(cloud_event):
             '終了日': 'end_date',
             'リスティング': 'listing_name',
             '金額': 'amount',
+            'サービス料': 'service_fee',
+            '清掃料金': 'cleaning_fee',
             '総収入': 'total_income'
         }
         
-        available_cols = [c for c in COLUMN_MAP.keys() if c in df.columns]
-        df = df[available_cols].rename(columns=COLUMN_MAP)
+        df = df[[c for c in COLUMN_MAP.keys() if c in df.columns]].rename(columns=COLUMN_MAP)
 
-        # 日付型変換
+        # 日付変換 (MM/DD/YYYY -> YYYY-MM-DD)
         date_cols = ['event_date', 'payout_scheduled_date', 'booking_date', 'start_date', 'end_date']
         for col in date_cols:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # 3. BigQueryロード
-        bq_client = bigquery.Client()
-        table_ref = f"{PROJECT_ID}.{DATASET_ID}.{TABLE_ID}"
+        # 3. BigQueryへロード
+        bq_client = bigquery.Client(project=project_id)
+        table_ref = f"{project_id}.{dataset_id}.{table_id}"
         
         job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
         job = bq_client.load_table_from_dataframe(df, table_ref, job_config=job_config)
         job.result()
 
-        logger.info(f"Success: Loaded {len(df)} rows to {table_ref}")
+        logging.info(f"Successfully loaded {len(df)} rows.")
 
     except Exception as e:
-        logger.error(f"Error occurred: {str(e)}", exc_info=True)
+        logging.error(f"Error: {str(e)}")
         raise e
+

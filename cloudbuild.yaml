@@ -4,15 +4,12 @@ steps:
       - gcloud
       - functions
       - deploy
-      - airbnb-payouts-import
-      - --gen2
+      - airbnb-payouts-import-gen1     # 関数名
       - --region=asia-northeast1
       - --runtime=python310
-      - --entry-point=load_airbnb_csv_improved
-      - --trigger-event-type=google.cloud.storage.object.v1.finalized
-      - --trigger-location=asia-northeast1
-      - --trigger-bucket=${_TRIGGER_BUCKET}
-      - --set-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID} 
+      - --entry-point=load_airbnb_csv_gen1
+      - --trigger-bucket=${_TRIGGER_BUCKET}   # 第1世代のトリガー指定
+      - --set-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID}
       - --source=.
 
 options:
