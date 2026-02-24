@@ -8,12 +8,20 @@ from google.cloud import storage
 # ロギング設定
 logging.basicConfig(level=logging.INFO)
 
-def load_airbnb_csv_gen1(event, context):
+def load_airbnb_csv_gen1(event, context=None):
     """
-    Google Cloud Functions Gen 1 用
     event: GCSのイベントデータ
-    context: イベントのメタデータ
+    context: 第１世代ならイベントのメタデータ、第２世代ならNone
     """
+    if context is None:
+        # 第2世代として動いている場合 (CloudEvent)
+        print("DEBUG: Executing as Gen 2")
+        data = event.data
+    else:
+        # 第1世代として動いている場合
+        print("DEBUG: Executing as Gen 1")
+        data = event
+
     bucket_name = event['bucket']
     file_name = event['name']
     
