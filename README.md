@@ -1,20 +1,24 @@
 # Airbnb Earnings Automation
 
-Airbnbの収支CSVをGoogle Cloud Storageにアップロードすると、自動的にBigQueryへロードし、スプレッドシートで分析可能にするパイプライン。 
+A data pipeline that automatically loads Airbnb earnings CSV files into BigQuery when uploaded to Google Cloud Storage, enabling analysis via Google Sheets.
 
-## 構成
+## Architecture
 
-- **Cloud Storage**: CSVアップロード用
-- **Cloud Functions (Gen 2)**: データ加工・ロード
-- **BigQuery**: データ蓄積 - **Connected Sheets**: 可視化・分析
+- **Cloud Storage**: For CSV uploads
+- **Cloud Functions (Gen 2)**: Data processing and loading
+- **BigQuery**: Data warehouse
+- **Connected Sheets**: Visualization and analysis
 
-## セットアップ
+## Setup
 
-1. `deploy.sh` 内のバケット名を修正
-2. `./deploy.sh`を実行
+1. Update the bucket name in `deploy.sh`.
+2. Run `./deploy.sh`.
 
-## 備考
+## Notes
 
-- 日付形式 `MM/DD/YYYY` を `YYYY-MM-DD` に自動変換します。
-- 日本語カラム名を分析しやすい英名に変換します。
+- Automatically converts date format from `MM/DD/YYYY` to `YYYY-MM-DD`.
+- Renames Japanese column headers to English for easier analysis.
 
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
