@@ -8,22 +8,22 @@ from google.cloud import storage
 # Logging configuration
 logging.basicConfig(level=logging.INFO)
 
-def process_airbnb_csv(event, context=None):
+def load_airbnb_csv(event, context=None):
     """
     event: GCS event data
     context: Event metadata (None if Gen 2)
     """
     if context is None:
         # Running as Gen 2 (CloudEvent)
-        print("DEBUG: Executing as Gen 2")
+        logging.info("DEBUG: Executing as Gen 2")
         data = event.data
     else:
         # Running as Gen 1
-        print("DEBUG: Executing as Gen 1")
+        logging.info("DEBUG: Executing as Gen 1")
         data = event
 
-    bucket_name = event['bucket']
-    file_name = event['name']
+    bucket_name = data['bucket']
+    file_name = data['name']
     
     logging.info(f"Processing file: {file_name} from bucket: {bucket_name}")
 
@@ -45,7 +45,7 @@ def process_airbnb_csv(event, context=None):
         # 2. Data cleansing with Pandas
         df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig')
 
-        # Mapping (aligned with provided CSV headers)
+        # Mapping
         COLUMN_MAP = {
             '日付': 'event_date',
             '入金予定日': 'payout_scheduled_date',
@@ -73,7 +73,12 @@ def process_airbnb_csv(event, context=None):
         bq_client = bigquery.Client(project=project_id)
         table_ref = f"{project_id}.{dataset_id}.{table_id}"
         
-        job_config = bigquery.LoadJobConfig(write_disposition="WRITE_APPEND")
+        # Configration for LoadJob
+        job_config = bigquery.LoadJobConfig(
+            write_disposition="WRITE_APPEND", # Append
+            autodetect=True                   # If it dosen't exist, create table
+        )
+        
         job = bq_client.load_table_from_dataframe(df, table_ref, job_config=job_config)
         job.result()
 
