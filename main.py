@@ -5,20 +5,20 @@ import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
 
-# ロギング設定
+# Logging configuration
 logging.basicConfig(level=logging.INFO)
 
-def load_airbnb_csv_gen1(event, context=None):
+def process_airbnb_csv(event, context=None):
     """
-    event: GCSのイベントデータ
-    context: 第１世代ならイベントのメタデータ、第２世代ならNone
+    event: GCS event data
+    context: Event metadata (None if Gen 2)
     """
     if context is None:
-        # 第2世代として動いている場合 (CloudEvent)
+        # Running as Gen 2 (CloudEvent)
         print("DEBUG: Executing as Gen 2")
         data = event.data
     else:
-        # 第1世代として動いている場合
+        # Running as Gen 1
         print("DEBUG: Executing as Gen 1")
         data = event
 
@@ -31,21 +31,21 @@ def load_airbnb_csv_gen1(event, context=None):
         logging.info("Not a CSV file. Skipping.")
         return
 
-    # 環境変数の取得
+    # Environment variables
     project_id = os.environ.get("GCP_PROJECT_ID")
     dataset_id = os.environ.get("BQ_DATASET_ID", "airbnb_management")
     table_id = os.environ.get("BQ_TABLE_ID", "earnings_cleaned")
 
     try:
-        # 1. GCSから読み込み
+        # 1. Read from GCS
         storage_client = storage.Client()
         blob = storage_client.bucket(bucket_name).blob(file_name)
         content = blob.download_as_bytes()
 
-        # 2. Pandasでクレンジング
+        # 2. Data cleansing with Pandas
         df = pd.read_csv(io.BytesIO(content), encoding='utf-8-sig')
 
-        # マッピング（ご提示のCSVヘッダーに準拠）
+        # Mapping (aligned with provided CSV headers)
         COLUMN_MAP = {
             '日付': 'event_date',
             '入金予定日': 'payout_scheduled_date',
@@ -63,13 +63,13 @@ def load_airbnb_csv_gen1(event, context=None):
         
         df = df[[c for c in COLUMN_MAP.keys() if c in df.columns]].rename(columns=COLUMN_MAP)
 
-        # 日付変換 (MM/DD/YYYY -> YYYY-MM-DD)
+        # Date conversion (MM/DD/YYYY -> YYYY-MM-DD)
         date_cols = ['event_date', 'payout_scheduled_date', 'booking_date', 'start_date', 'end_date']
         for col in date_cols:
             if col in df.columns:
                 df[col] = pd.to_datetime(df[col], errors='coerce').dt.date
 
-        # 3. BigQueryへロード
+        # 3. Load to BigQuery
         bq_client = bigquery.Client(project=project_id)
         table_ref = f"{project_id}.{dataset_id}.{table_id}"
         
@@ -82,4 +82,3 @@ def load_airbnb_csv_gen1(event, context=None):
     except Exception as e:
         logging.error(f"Error: {str(e)}")
         raise e
-

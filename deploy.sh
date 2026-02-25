@@ -1,18 +1,22 @@
 #!/bin/bash
 
-# 変数の設定（ご自身の環境に合わせて書き換えてください） 
+# Configuration (Please update these values for your environment)
 FUNCTION_NAME="airbnb-payouts-import"
-REGION="asia-northeast1" 
-TRIGGER_BUCKET="[あなたのバケット名]" # 例: airbnb-payouts-raw 
-GCP_PROJECT_ID="airbnb-management-488303"
+REGION="asia-northeast1"
+TRIGGER_BUCKET="YOUR_BUCKET_NAME" # e.g., airbnb-payouts-raw
+GCP_PROJECT_ID="YOUR_PROJECT_ID"
 
-echo "Deploying ${FUNCTION_NAME}..." gcloud functions 
+echo "Deploying ${FUNCTION_NAME}..."
 
-deploy ${FUNCTION_NAME} \
-  --gen2 \ --runtime python310 \ --entry-point load_airbnb_csv_improved \ --region ${REGION} \ 
-  --trigger-event-type google.cloud.storage.object.v1.finalized \ --trigger-location ${REGION} \ 
-  --trigger-bucket ${TRIGGER_BUCKET} \ --set-env-vars 
-  GCP_PROJECT_ID=${GCP_PROJECT_ID},BQ_DATASET_ID=airbnb_management,BQ_TABLE_ID=earnings_cleaned \ 
+gcloud functions deploy ${FUNCTION_NAME} \
+  --gen2 \
+  --runtime python312 \
+  --entry-point process_airbnb_csv \
+  --region ${REGION} \
+  --trigger-event-type google.cloud.storage.object.v1.finalized \
+  --trigger-location ${REGION} \
+  --trigger-bucket ${TRIGGER_BUCKET} \
+  --set-env-vars GCP_PROJECT_ID=${GCP_PROJECT_ID},BQ_DATASET_ID=airbnb_management,BQ_TABLE_ID=earnings_cleaned \
   --source .
 
 echo "Deployment complete."
