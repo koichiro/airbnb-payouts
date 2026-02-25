@@ -18,3 +18,7 @@ A data pipeline that automatically loads Airbnb earnings CSV files into BigQuery
 
 - Automatically converts date format from `MM/DD/YYYY` to `YYYY-MM-DD`.
 - Renames Japanese column headers to English for easier analysis.
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
