@@ -4,7 +4,7 @@ steps:
       - gcloud
       - functions
       - deploy
-      - load_airbnb_csv_gen1     # 関数名
+      - load_airbnb_csv     # 関数名
       - --no-gen2
       - --region=asia-northeast1
       - --runtime=python312
