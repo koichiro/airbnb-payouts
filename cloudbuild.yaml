@@ -6,6 +6,7 @@ steps:
       - deploy
       - ${_FUNCTION_TARGET}     # invoke function name
       - --no-gen2
+      - --memory 512MB
       - --region=asia-northeast1
       - --runtime=python312
       - --service-account=${SERVICE_ACCOUNT_EMAIL}
