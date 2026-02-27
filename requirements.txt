@@ -1,5 +1,7 @@
+functions-framework
 google-cloud-bigquery
 google-cloud-storage
 pandas
 pyarrow
 db-dtypes
+pandas-gbq >= 0.26.1
