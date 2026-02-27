@@ -5,7 +5,7 @@ A data pipeline that automatically loads Airbnb earnings CSV files into BigQuery
 ## Architecture
 
 - **Cloud Storage**: For CSV uploads
-- **Cloud Functions (Gen 2)**: Data processing and loading
+- **Cloud Functions (Gen 1 or 2 Both support)**: Data processing and loading
 - **BigQuery**: Data warehouse
 - **Connected Sheets**: Visualization and analysis
 
