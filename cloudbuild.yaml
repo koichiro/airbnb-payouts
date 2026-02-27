@@ -5,6 +5,7 @@ steps:
       - functions
       - deploy
       - ${_FUNCTION_TARGET}
+      - --region=asia-northeast1
       - --memory=512MB
       - --runtime=python312
       - --service-account=${SERVICE_ACCOUNT_EMAIL}
