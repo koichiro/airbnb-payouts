@@ -112,21 +112,36 @@ def load_airbnb_csv(event, context=None):
         load_job.result() # Wait for the load to complete
         logger.info(f"Loaded {len(df)} rows to staging table.")
 
-        # B. Execute MERGE statement to perform UPSERT
-        # This will insert rows only if the row_id does not already exist in the target table
-        columns_list = ", ".join([f"`{c}`" for c in df.columns])
-        source_columns_list = ", ".join([f"S.`{c}`" for c in df.columns])
+        # B. Check if target table exists
+        try:
+            bq_client.get_table(table_ref)
+            table_exists = True
+        except NotFound:
+            table_exists = False
 
-        merge_query = f"""
-        MERGE `{table_ref}` T
-        USING `{staging_ref}` S
-        ON T.row_id = S.row_id
-        WHEN NOT MATCHED THEN
-          INSERT ({columns_list}) VALUES ({source_columns_list})
-        """
-        query_job = bq_client.query(merge_query)
-        query_job.result() # Wait for the merge to complete
-        logger.info("MERGE operation completed successfully.")
+        if not table_exists:
+            # First run: Copy staging table to target table
+            logger.info(f"Target table {table_ref} not found. Creating it for the first time.")
+            copy_job_config = bigquery.CopyJobConfig(write_disposition="WRITE_TRUNCATE")
+            copy_job = bq_client.copy_table(staging_ref, table_ref, job_config=copy_job_config)
+            copy_job.result()
+            logger.info("Target table created successfully.")
+        else:
+            # Subsequent runs: Perform MERGE (Upsert)
+            logger.info(f"Target table {table_ref} exists. Performing MERGE.")
+            columns_list = ", ".join([f"`{c}`" for c in df.columns])
+            source_columns_list = ", ".join([f"S.`{c}`" for c in df.columns])
+
+            merge_query = f"""
+            MERGE `{table_ref}` T
+            USING `{staging_ref}` S
+            ON T.row_id = S.row_id
+            WHEN NOT MATCHED THEN
+              INSERT ({columns_list}) VALUES ({source_columns_list})
+            """
+            query_job = bq_client.query(merge_query)
+            query_job.result()
+            logger.info("MERGE operation completed.")
 
         # C. Cleanup: Delete Staging Table
         bq_client.delete_table(staging_ref, not_found_ok=True)
