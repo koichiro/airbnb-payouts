@@ -4,7 +4,7 @@ steps:
       - gcloud
       - functions
       - deploy
-      - ${__FUNCTION_TARGET}     # invoke function name
+      - ${_FUNCTION_TARGET}     # invoke function name
       - --no-gen2
       - --region=asia-northeast1
       - --runtime=python312
