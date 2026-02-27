@@ -5,6 +5,7 @@ import hashlib
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
+from google.cloud.exceptions import NotFound
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
