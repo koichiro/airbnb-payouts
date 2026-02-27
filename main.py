@@ -72,6 +72,7 @@ def load_airbnb_csv(event, context=None):
             'サービス料': 'service_fee',
             'スピード送金の手数料': 'express_transfer_fee',
             '清掃料金': 'cleaning_fee',
+            'ペット料金': 'pet_fee',
             '総収入': 'total_income',
             '宿泊税': 'accommodation_tax',
             'ホスティング収入年度': 'hosting_revenue_fiscal_year'
