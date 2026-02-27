@@ -4,13 +4,11 @@ steps:
       - gcloud
       - functions
       - deploy
-      - ${_FUNCTION_TARGET}     # invoke function name
-      - --no-gen2
-      - --memory 512MB
-      - --region=asia-northeast1
+      - ${_FUNCTION_TARGET}
+      - --memory=512MB
       - --runtime=python312
       - --service-account=${SERVICE_ACCOUNT_EMAIL}
-      - --trigger-bucket=${_TRIGGER_BUCKET}   # gen1 trigger
+      - --trigger-bucket=${_TRIGGER_BUCKET}
       - --set-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID}
       - --source=.
 

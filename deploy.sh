@@ -9,7 +9,6 @@ GCP_PROJECT_ID="YOUR_PROJECT_ID"
 echo "Deploying ${FUNCTION_NAME}..."
 
 gcloud functions deploy ${FUNCTION_NAME} \
-  --gen2 \
   --runtime python312 \
   --memory 512MB
   --entry-point process_airbnb_csv \
