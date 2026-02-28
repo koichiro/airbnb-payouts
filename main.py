@@ -231,7 +231,11 @@ def load_airbnb_csv(event, context=None):
                 elif field.field_type == 'DATE': arrow_type = pyarrow.date32()
                 elif field.field_type == 'BYTES': arrow_type = pyarrow.binary(field.max_length) if field.max_length else pyarrow.binary()
                 elif field.field_type in ('INTEGER', 'INT64'): arrow_type = pyarrow.int64()
-                elif field.field_type in ('FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'): arrow_type = pyarrow.float64()
+                elif field.field_type in ('FLOAT', 'FLOAT64'):
+                    arrow_type = pyarrow.float64()
+                elif field.field_type in ('NUMERIC', 'BIGNUMERIC'):
+                    # This is the most likely source of the "expected 16" byte error, as BQ NUMERIC maps to Arrow's 16-byte Decimal128 type.
+                    arrow_type = pyarrow.decimal128(38, 9) # Default BQ NUMERIC is Precision=38, Scale=9.
                 elif field.field_type == 'BOOLEAN': arrow_type = pyarrow.bool_()
                 elif field.field_type == 'TIMESTAMP': arrow_type = pyarrow.timestamp('us', tz='UTC')
                 
