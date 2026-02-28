@@ -228,8 +228,13 @@ def load_airbnb_csv(event, context=None):
               INSERT ({columns_list}) VALUES ({source_columns_list})
             """
             query_job = bq_client.query(merge_query)
-            query_job.result()
-            logger.info("MERGE operation completed.")
+            query_job.result() # Wait for the merge to complete
+
+            # Get merge statistics
+            rows_inserted = query_job.num_rows_inserted if query_job.num_rows_inserted is not None else 0
+            rows_updated = query_job.num_rows_updated if query_job.num_rows_updated is not None else 0
+            
+            logger.info(f"MERGE operation completed. Rows inserted: {rows_inserted}, Rows updated: {rows_updated}.")
 
         # C. Cleanup: Delete Staging Table
         bq_client.delete_table(staging_ref, not_found_ok=True)
