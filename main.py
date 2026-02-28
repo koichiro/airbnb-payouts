@@ -231,8 +231,12 @@ def load_airbnb_csv(event, context=None):
             query_job.result() # Wait for the merge to complete
 
             # Get merge statistics
-            rows_inserted = query_job.num_rows_inserted if query_job.num_rows_inserted is not None else 0
-            rows_updated = query_job.num_rows_updated if query_job.num_rows_updated is not None else 0
+            if query_job.dml_stats:
+                rows_inserted = query_job.dml_stats.inserted_row_count if query_job.dml_stats.inserted_row_count is not None else 0
+                rows_updated = query_job.dml_stats.updated_row_count if query_job.dml_stats.updated_row_count is not None else 0
+            else:
+                rows_inserted = 0
+                rows_updated = 0
             
             logger.info(f"MERGE operation completed. Rows inserted: {rows_inserted}, Rows updated: {rows_updated}.")
 
