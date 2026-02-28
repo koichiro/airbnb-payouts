@@ -136,7 +136,7 @@ def load_airbnb_csv(event, context=None):
             bigquery.SchemaField("currency", "STRING"),
             bigquery.SchemaField("amount", "INTEGER"),
             bigquery.SchemaField("paid", "INTEGER"),
-            bigquery.SchemaField("service_fee", "NUMERIC"),
+            bigquery.SchemaField("service_fee", "INTEGER"),
             bigquery.SchemaField("express_transfer_fee", "NUMERIC"),
             bigquery.SchemaField("cleaning_fee", "NUMERIC"),
             bigquery.SchemaField("pet_fee", "NUMERIC"),
