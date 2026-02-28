@@ -141,7 +141,7 @@ def load_airbnb_csv(event, context=None):
             bigquery.SchemaField("cleaning_fee", "INTEGER"),
             bigquery.SchemaField("pet_fee", "INTEGER"),
             bigquery.SchemaField("total_income", "INTEGER"),
-            bigquery.SchemaField("accommodation_tax", "NUMERIC"),
+            bigquery.SchemaField("accommodation_tax", "INTEGER"),
             bigquery.SchemaField("hosting_revenue_fiscal_year", "INTEGER"),
             bigquery.SchemaField("row_id", "STRING", "REQUIRED"),
         ]
