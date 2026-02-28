@@ -2,6 +2,7 @@ import os
 import io
 import logging
 import hashlib
+import pyarrow
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
@@ -207,6 +208,70 @@ def load_airbnb_csv(event, context=None):
             logger.info("All columns in the explicit schema passed the diagnostic check.")
         else:
             logger.warning("No explicit schema found in load_job_config. Skipping diagnostic check.")
+        # --- End of temporary debugging code ---
+
+        # --- Start of V2 temporary debugging code ---
+        logger.info("Starting diagnostic check V2...")
+        
+        # Part 1: Check columns defined in the explicit schema
+        logger.info("Part 1: Verifying columns defined in the explicit schema...")
+        bq_schema_to_check = getattr(load_job_config, 'schema', [])
+        schema_cols = {field.name for field in bq_schema_to_check}
+        passed_schema_check = True
+
+        for field in bq_schema_to_check:
+            col_name = field.name
+            if col_name not in df.columns:
+                logger.warning(f"Schema column '{col_name}' not in DataFrame. Skipping check.")
+                continue
+            try:
+                series = df[col_name]
+                arrow_type = None # Simplified type mapping for debug
+                if field.field_type in ('STRING', 'GEOGRAPHY'): arrow_type = pyarrow.string()
+                elif field.field_type == 'DATE': arrow_type = pyarrow.date32()
+                elif field.field_type == 'BYTES': arrow_type = pyarrow.binary(field.max_length) if field.max_length else pyarrow.binary()
+                elif field.field_type in ('INTEGER', 'INT64'): arrow_type = pyarrow.int64()
+                elif field.field_type in ('FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'): arrow_type = pyarrow.float64()
+                elif field.field_type == 'BOOLEAN': arrow_type = pyarrow.bool_()
+                elif field.field_type == 'TIMESTAMP': arrow_type = pyarrow.timestamp('us', tz='UTC')
+                
+                if arrow_type:
+                    pyarrow.Array.from_pandas(series, type=arrow_type)
+
+            except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowTypeError) as e:
+                logger.error(f"!!! >>> SCHEMA COLUMN '{col_name}' FAILED conversion! <<< !!!")
+                logger.error(f"BigQuery Type specified: {field.field_type}")
+                logger.error(f"Pandas Series dtype: {series.dtype}")
+                logger.error(f"First 5 values of '{col_name}':\n{series.head().to_string()}")
+                logger.error(f"Arrow Conversion Error: {e}")
+                passed_schema_check = False
+                raise ValueError(f"Data in schema column '{col_name}' is incompatible.") from e
+        
+        if passed_schema_check:
+             logger.info("Part 1: All columns in the explicit schema passed the check.")
+
+        # Part 2: Check extra columns handled by autodetect
+        logger.info("Part 2: Verifying extra columns not in schema (handled by autodetect)...")
+        extra_cols = [col for col in df.columns if col not in schema_cols]
+        
+        if not extra_cols:
+            logger.info("Part 2: No extra columns found. The error source is still a mystery if failure occurs.")
+        else:
+            logger.warning(f"Found extra columns not in schema: {extra_cols}")
+            for col_name in extra_cols:
+                try:
+                    series = df[col_name]
+                    logger.info(f"Checking extra column '{col_name}'...")
+                    # Let pyarrow infer type, simulating autodetect
+                    pyarrow.Array.from_pandas(series)
+                    logger.info(f"Extra column '{col_name}' PASSED basic conversion.")
+                except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowTypeError) as e:
+                    logger.error(f"!!! >>> EXTRA COLUMN '{col_name}' FAILED Arrow conversion! <<< !!!")
+                    logger.error("This column is processed by 'autodetect=True' and is the likely source of the error.")
+                    logger.error(f"Pandas Series dtype: {series.dtype}")
+                    logger.error(f"First 5 values of '{col_name}':\n{series.head().to_string()}")
+                    logger.error(f"Arrow Conversion Error: {e}")
+                    raise ValueError(f"Data in extra column '{col_name}' failed during autodetect processing.") from e
         # --- End of temporary debugging code ---
 
         load_job = bq_client.load_table_from_dataframe(df, staging_ref, job_config=load_job_config)
