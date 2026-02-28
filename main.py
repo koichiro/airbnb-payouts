@@ -123,7 +123,7 @@ def load_airbnb_csv(event, context=None):
             bigquery.SchemaField("event_date", "DATE"),
             bigquery.SchemaField("payout_scheduled_date", "DATE"),
             bigquery.SchemaField("type", "STRING"),
-            bigquery.SchemaField("confirmation_code", "DATE"),
+            bigquery.SchemaField("confirmation_code", "STRING"),
             bigquery.SchemaField("booking_date", "DATE"),
             bigquery.SchemaField("start_date", "DATE"),
             bigquery.SchemaField("end_date", "DATE"),
