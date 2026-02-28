@@ -7,6 +7,7 @@ import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
 from google.cloud.exceptions import NotFound
+from decimal import Decimal, InvalidOperation
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -100,11 +101,35 @@ def load_airbnb_csv(event, context=None):
                 # Airbnb typically uses MM/DD/YYYY format
                 df[col] = pd.to_datetime(df[col], format='%m/%d/%Y', errors='coerce').dt.date
 
-        # Sanitize numeric columns
-        num_cols = ['amount', 'service_fee', 'cleaning_fee', 'total_income']
-        for col in num_cols:
+        # Sanitize data types for BigQuery
+        numeric_cols = [
+            'amount', 'paid', 'service_fee', 'express_transfer_fee', 'cleaning_fee',
+            'pet_fee', 'total_income', 'accommodation_tax'
+        ]
+        integer_cols = ['number_of_nights', 'hosting_revenue_fiscal_year']
+
+        # Sanitize NUMERIC columns to Python's Decimal to preserve precision
+        for col in numeric_cols:
             if col in df.columns:
-                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                # Convert to string first to avoid float precision issues, then to Decimal.
+                df[col] = pd.to_numeric(df[col], errors='coerce').astype(str)
+                def to_decimal(x):
+                    try:
+                        # Handle pandas' string representation of NaN
+                        if x in ('nan', '<NA>'):
+                            return None
+                        return Decimal(x)
+                    except (InvalidOperation, TypeError):
+                        return None # Corresponds to NULL in BigQuery
+                df[col] = df[col].apply(to_decimal)
+
+        # Sanitize INTEGER columns
+        for col in integer_cols:
+            if col in df.columns:
+                # Coerce to numeric, then to pandas' nullable integer type
+                df[col] = pd.to_numeric(df[col], errors='coerce')
+                df[col] = df[col].astype('Int64')
+
 
         # 5. IDEMPOTENCY: Generate a unique hash for each row to serve as a Primary Key (row_id)
         # We use SHA256 on the entire row content to ensure even entries without IDs (like Payouts) are unique
@@ -134,14 +159,14 @@ def load_airbnb_csv(event, context=None):
             bigquery.SchemaField("details", "STRING"),
             bigquery.SchemaField("reference_code", "STRING"),
             bigquery.SchemaField("currency", "STRING"),
-            bigquery.SchemaField("amount", "INTEGER"),
-            bigquery.SchemaField("paid", "INTEGER"),
-            bigquery.SchemaField("service_fee", "INTEGER"),
-            bigquery.SchemaField("express_transfer_fee", "INTEGER"),
-            bigquery.SchemaField("cleaning_fee", "INTEGER"),
-            bigquery.SchemaField("pet_fee", "INTEGER"),
-            bigquery.SchemaField("total_income", "INTEGER"),
-            bigquery.SchemaField("accommodation_tax", "INTEGER"),
+            bigquery.SchemaField("amount", "NUMERIC"),
+            bigquery.SchemaField("paid", "NUMERIC"),
+            bigquery.SchemaField("service_fee", "NUMERIC"),
+            bigquery.SchemaField("express_transfer_fee", "NUMERIC"),
+            bigquery.SchemaField("cleaning_fee", "NUMERIC"),
+            bigquery.SchemaField("pet_fee", "NUMERIC"),
+            bigquery.SchemaField("total_income", "NUMERIC"),
+            bigquery.SchemaField("accommodation_tax", "NUMERIC"),
             bigquery.SchemaField("hosting_revenue_fiscal_year", "INTEGER"),
             bigquery.SchemaField("row_id", "STRING", "REQUIRED"),
         ]
@@ -153,130 +178,6 @@ def load_airbnb_csv(event, context=None):
             schema=job_schema, # Use explicit schema
             autodetect=True
         )
-
-        # --- Start of temporary debugging code ---
-        import pyarrow
-        logger.info("Starting diagnostic check: Verifying DataFrame columns against BigQuery schema...")
-        bq_schema_to_check = getattr(load_job_config, 'schema', None)
-        if bq_schema_to_check:
-            for field in bq_schema_to_check:
-                col_name = field.name
-                if col_name not in df.columns:
-                    # This case can happen if a column in the schema is not in the CSV. This is usually fine.
-                    logger.warning(f"Column '{col_name}' from schema not found in DataFrame. Skipping check.")
-                    continue
-                try:
-                    series = df[col_name]
-                    # This mapping is simplified for debugging but covers common cases.
-                    arrow_type = None
-                    if field.field_type in ('STRING', 'GEOGRAPHY'):
-                        arrow_type = pyarrow.string()
-                    elif field.field_type == 'DATE':
-                        arrow_type = pyarrow.date32()
-                    elif field.field_type == 'BYTES':
-                        arrow_type = pyarrow.binary(field.max_length) if field.max_length else pyarrow.binary()
-                    elif field.field_type in ('INTEGER', 'INT64'):
-                        arrow_type = pyarrow.int64()
-                    elif field.field_type in ('FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'):
-                        # NUMERIC is tricky as pandas doesn't have a native high-precision decimal.
-                        # We test as float64, as that's how pandas stores it.
-                        arrow_type = pyarrow.float64()
-                    elif field.field_type == 'BOOLEAN':
-                        arrow_type = pyarrow.bool_()
-                    elif field.field_type == 'TIMESTAMP':
-                        arrow_type = pyarrow.timestamp('us', tz='UTC') # BQ Timestamps are UTC
-
-                    if arrow_type:
-                        logger.info(f"Checking column '{col_name}' for conversion to Arrow type '{arrow_type}'...")
-                        # Attempt the conversion to see if it fails
-                        pyarrow.Array.from_pandas(series, type=arrow_type)
-                        logger.info(f"Column '{col_name}' PASSED check.")
-                    else:
-                        logger.info(f"Skipping check for unhandled BQ type '{field.field_type}' in column '{col_name}'.")
-
-                except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowTypeError) as e:
-                    logger.error(f"!!! >>> COLUMN '{col_name}' FAILED conversion to Arrow array! <<< !!!")
-                    logger.error(f"BigQuery Type specified: {field.field_type}")
-                    logger.error(f"Pandas Series dtype: {series.dtype}")
-                    logger.error(f"First 5 values of '{col_name}':\n{series.head().to_string()}")
-                    logger.error(f"Arrow Conversion Error: {e}")
-                    # Re-raise a clearer error to stop execution.
-                    raise ValueError(f"Data in column '{col_name}' is incompatible with the specified BigQuery schema.") from e
-                except Exception as e:
-                    logger.error(f"An unexpected error occurred while checking column '{col_name}': {e}")
-                    raise
-            logger.info("All columns in the explicit schema passed the diagnostic check.")
-        else:
-            logger.warning("No explicit schema found in load_job_config. Skipping diagnostic check.")
-        # --- End of temporary debugging code ---
-
-        # --- Start of V2 temporary debugging code ---
-        logger.info("Starting diagnostic check V2...")
-        
-        # Part 1: Check columns defined in the explicit schema
-        logger.info("Part 1: Verifying columns defined in the explicit schema...")
-        bq_schema_to_check = getattr(load_job_config, 'schema', [])
-        schema_cols = {field.name for field in bq_schema_to_check}
-        passed_schema_check = True
-
-        for field in bq_schema_to_check:
-            col_name = field.name
-            if col_name not in df.columns:
-                logger.warning(f"Schema column '{col_name}' not in DataFrame. Skipping check.")
-                continue
-            try:
-                series = df[col_name]
-                arrow_type = None # Simplified type mapping for debug
-                if field.field_type in ('STRING', 'GEOGRAPHY'): arrow_type = pyarrow.string()
-                elif field.field_type == 'DATE': arrow_type = pyarrow.date32()
-                elif field.field_type == 'BYTES': arrow_type = pyarrow.binary(field.max_length) if field.max_length else pyarrow.binary()
-                elif field.field_type in ('INTEGER', 'INT64'): arrow_type = pyarrow.int64()
-                elif field.field_type in ('FLOAT', 'FLOAT64'):
-                    arrow_type = pyarrow.float64()
-                elif field.field_type in ('NUMERIC', 'BIGNUMERIC'):
-                    # This is the most likely source of the "expected 16" byte error, as BQ NUMERIC maps to Arrow's 16-byte Decimal128 type.
-                    arrow_type = pyarrow.decimal128(38, 9) # Default BQ NUMERIC is Precision=38, Scale=9.
-                elif field.field_type == 'BOOLEAN': arrow_type = pyarrow.bool_()
-                elif field.field_type == 'TIMESTAMP': arrow_type = pyarrow.timestamp('us', tz='UTC')
-                
-                if arrow_type:
-                    pyarrow.Array.from_pandas(series, type=arrow_type)
-
-            except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowTypeError) as e:
-                logger.error(f"!!! >>> SCHEMA COLUMN '{col_name}' FAILED conversion! <<< !!!")
-                logger.error(f"BigQuery Type specified: {field.field_type}")
-                logger.error(f"Pandas Series dtype: {series.dtype}")
-                logger.error(f"First 5 values of '{col_name}':\n{series.head().to_string()}")
-                logger.error(f"Arrow Conversion Error: {e}")
-                passed_schema_check = False
-                raise ValueError(f"Data in schema column '{col_name}' is incompatible.") from e
-        
-        if passed_schema_check:
-             logger.info("Part 1: All columns in the explicit schema passed the check.")
-
-        # Part 2: Check extra columns handled by autodetect
-        logger.info("Part 2: Verifying extra columns not in schema (handled by autodetect)...")
-        extra_cols = [col for col in df.columns if col not in schema_cols]
-        
-        if not extra_cols:
-            logger.info("Part 2: No extra columns found. The error source is still a mystery if failure occurs.")
-        else:
-            logger.warning(f"Found extra columns not in schema: {extra_cols}")
-            for col_name in extra_cols:
-                try:
-                    series = df[col_name]
-                    logger.info(f"Checking extra column '{col_name}'...")
-                    # Let pyarrow infer type, simulating autodetect
-                    pyarrow.Array.from_pandas(series)
-                    logger.info(f"Extra column '{col_name}' PASSED basic conversion.")
-                except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowTypeError) as e:
-                    logger.error(f"!!! >>> EXTRA COLUMN '{col_name}' FAILED Arrow conversion! <<< !!!")
-                    logger.error("This column is processed by 'autodetect=True' and is the likely source of the error.")
-                    logger.error(f"Pandas Series dtype: {series.dtype}")
-                    logger.error(f"First 5 values of '{col_name}':\n{series.head().to_string()}")
-                    logger.error(f"Arrow Conversion Error: {e}")
-                    raise ValueError(f"Data in extra column '{col_name}' failed during autodetect processing.") from e
-        # --- End of temporary debugging code ---
 
         load_job = bq_client.load_table_from_dataframe(df, staging_ref, job_config=load_job_config)
         load_job.result() # Wait for the load to complete
