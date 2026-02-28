@@ -11,7 +11,7 @@ echo "Deploying ${FUNCTION_NAME}..."
 gcloud functions deploy ${FUNCTION_NAME} \
   --runtime python312 \
   --memory 512MB
-  --entry-point process_airbnb_csv \
+  --entry-point load_airbnb_csv \
   --region ${REGION} \
   --trigger-event-type google.cloud.storage.object.v1.finalized \
   --trigger-location ${REGION} \
