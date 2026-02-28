@@ -117,10 +117,39 @@ def load_airbnb_csv(event, context=None):
         table_ref = f"{project_id}.{dataset_id}.{table_id}"
         staging_ref = f"{project_id}.{dataset_id}.{staging_table_id}"
 
+        # Define explicit schema to ensure financial columns use NUMERIC type
+        # instead of FLOAT64 to prevent rounding errors.
+        job_schema = [
+            bigquery.SchemaField("event_date", "DATE"),
+            bigquery.SchemaField("payout_scheduled_date", "DATE"),
+            bigquery.SchemaField("type", "STRING"),
+            bigquery.SchemaField("confirmation_code", "DATE"),
+            bigquery.SchemaField("booking_date", "DATE"),
+            bigquery.SchemaField("start_date", "DATE"),
+            bigquery.SchemaField("end_date", "DATE"),
+            bigquery.SchemaField("number_of_nights", "NUMERIC"),
+            bigquery.SchemaField("guest", "STRING"),
+            bigquery.SchemaField("listing_name", "STRING"),
+            bigquery.SchemaField("details", "STRING"),
+            bigquery.SchemaField("reference_code", "STRING"),
+            bigquery.SchemaField("currency", "STRING"),
+            bigquery.SchemaField("amount", "NUMERIC"),
+            bigquery.SchemaField("paid", "NUMERIC"),
+            bigquery.SchemaField("service_fee", "NUMERIC"),
+            bigquery.SchemaField("express_transfer_fee", "NUMERIC"),
+            bigquery.SchemaField("cleaning_fee", "NUMERIC"),
+            bigquery.SchemaField("pet_fee", "NUMERIC"),
+            bigquery.SchemaField("total_income", "NUMERIC"),
+            bigquery.SchemaField("accommodation_tax", "NUMERIC"),
+            bigquery.SchemaField("hosting_revenue_fiscal_year", "NUMERIC"),
+            bigquery.SchemaField("row_id", "STRING"),
+        ]
+
         # A. Load to Staging Table (Overwrite)
         # Using autodetect=True allows the schema to adapt to "all columns" provided in the CSV
         load_job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_TRUNCATE",
+            schema=job_schema, # Use explicit schema
             autodetect=True
         )
         load_job = bq_client.load_table_from_dataframe(df, staging_ref, job_config=load_job_config)
