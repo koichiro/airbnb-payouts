@@ -2,7 +2,6 @@ import os
 import io
 import logging
 import hashlib
-import pyarrow
 import pandas as pd
 from google.cloud import bigquery
 from google.cloud import storage
