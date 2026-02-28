@@ -77,6 +77,19 @@ def load_airbnb_csv(event, context=None):
             '宿泊税': 'accommodation_tax',
             'ホスティング収入年度': 'hosting_revenue_fiscal_year'
         }
+
+        # Identify columns in the CSV that are not in our COLUMN_MAP (unexpected/unknown columns)
+        # These columns will remain with their original names after df.rename()
+        source_columns = set(df.columns) # Columns in the raw CSV
+        mapped_source_columns = set(COLUMN_MAP.keys()) # Japanese names we expect to map
+
+        unmapped_source_columns = [col for col in source_columns if col not in mapped_source_columns]
+
+        if unmapped_source_columns:
+            logger.warning(f"Found unmapped columns in the input CSV: {unmapped_source_columns}. "
+                           f"These columns will be loaded with their original names into the staging table. "
+                           f"Consider updating COLUMN_MAP or the target BigQuery table schema if these columns are important.")
+
         df.rename(columns=COLUMN_MAP, inplace=True)
 
         # Explicitly format date columns to ensure BQ recognizes them correctly
