@@ -172,6 +172,24 @@ def load_airbnb_csv(event, context=None):
         ]
 
         # A. Load to Staging Table (Overwrite)
+        # Align DataFrame columns with the schema before loading to prevent errors.
+        # This adds any missing columns as NULL.
+        logger.info("Aligning DataFrame columns with explicit BigQuery schema...")
+        for field in job_schema:
+            if field.name not in df.columns:
+                logger.warning(
+                    f"Column '{field.name}' not in CSV; adding as NULL column to match schema."
+                )
+                if field.field_type in ("NUMERIC", "BIGNUMERIC"):
+                    # Add as object dtype to hold None, consistent with Decimal columns
+                    df[field.name] = None
+                    df[field.name] = df[field.name].astype(object)
+                elif field.field_type == "INTEGER":
+                    df[field.name] = pd.NA # Use pandas NA for nullable Int64
+                    df[field.name] = df[field.name].astype('Int64')
+                else:
+                    df[field.name] = None
+        
         # Using autodetect=True allows the schema to adapt to "all columns" provided in the CSV
         load_job_config = bigquery.LoadJobConfig(
             write_disposition="WRITE_TRUNCATE",
