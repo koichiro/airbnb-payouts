@@ -128,7 +128,7 @@ def load_airbnb_csv(event, context=None):
             bigquery.SchemaField("booking_date", "DATE"),
             bigquery.SchemaField("start_date", "DATE"),
             bigquery.SchemaField("end_date", "DATE"),
-            bigquery.SchemaField("number_of_nights", "NUMERIC"),
+            bigquery.SchemaField("number_of_nights", "INTEGER"),
             bigquery.SchemaField("guest", "STRING"),
             bigquery.SchemaField("listing_name", "STRING"),
             bigquery.SchemaField("details", "STRING"),
