@@ -142,7 +142,7 @@ def load_airbnb_csv(event, context=None):
             bigquery.SchemaField("total_income", "NUMERIC"),
             bigquery.SchemaField("accommodation_tax", "NUMERIC"),
             bigquery.SchemaField("hosting_revenue_fiscal_year", "NUMERIC"),
-            bigquery.SchemaField("row_id", "STRING"),
+            bigquery.SchemaField("row_id", "STRING", "REQUIRED"),
         ]
 
         # A. Load to Staging Table (Overwrite)
@@ -152,6 +152,63 @@ def load_airbnb_csv(event, context=None):
             schema=job_schema, # Use explicit schema
             autodetect=True
         )
+
+        # --- Start of temporary debugging code ---
+        import pyarrow
+        logger.info("Starting diagnostic check: Verifying DataFrame columns against BigQuery schema...")
+        bq_schema_to_check = getattr(load_job_config, 'schema', None)
+        if bq_schema_to_check:
+            for field in bq_schema_to_check:
+                col_name = field.name
+                if col_name not in df.columns:
+                    # This case can happen if a column in the schema is not in the CSV. This is usually fine.
+                    logger.warning(f"Column '{col_name}' from schema not found in DataFrame. Skipping check.")
+                    continue
+                try:
+                    series = df[col_name]
+                    # This mapping is simplified for debugging but covers common cases.
+                    arrow_type = None
+                    if field.field_type in ('STRING', 'GEOGRAPHY'):
+                        arrow_type = pyarrow.string()
+                    elif field.field_type == 'DATE':
+                        arrow_type = pyarrow.date32()
+                    elif field.field_type == 'BYTES':
+                        arrow_type = pyarrow.binary(field.max_length) if field.max_length else pyarrow.binary()
+                    elif field.field_type in ('INTEGER', 'INT64'):
+                        arrow_type = pyarrow.int64()
+                    elif field.field_type in ('FLOAT', 'FLOAT64', 'NUMERIC', 'BIGNUMERIC'):
+                        # NUMERIC is tricky as pandas doesn't have a native high-precision decimal.
+                        # We test as float64, as that's how pandas stores it.
+                        arrow_type = pyarrow.float64()
+                    elif field.field_type == 'BOOLEAN':
+                        arrow_type = pyarrow.bool_()
+                    elif field.field_type == 'TIMESTAMP':
+                        arrow_type = pyarrow.timestamp('us', tz='UTC') # BQ Timestamps are UTC
+
+                    if arrow_type:
+                        logger.info(f"Checking column '{col_name}' for conversion to Arrow type '{arrow_type}'...")
+                        # Attempt the conversion to see if it fails
+                        pyarrow.Array.from_pandas(series, type=arrow_type)
+                        logger.info(f"Column '{col_name}' PASSED check.")
+                    else:
+                        logger.info(f"Skipping check for unhandled BQ type '{field.field_type}' in column '{col_name}'.")
+
+                except (pyarrow.lib.ArrowInvalid, pyarrow.lib.ArrowTypeError) as e:
+                    logger.error(f"!!! >>> COLUMN '{col_name}' FAILED conversion to Arrow array! <<< !!!")
+                    logger.error(f"BigQuery Type specified: {field.field_type}")
+                    logger.error(f"Pandas Series dtype: {series.dtype}")
+                    logger.error(f"First 5 values of '{col_name}':\n{series.head().to_string()}")
+                    logger.error(f"Arrow Conversion Error: {e}")
+                    # Re-raise a clearer error to stop execution.
+                    raise ValueError(f"Data in column '{col_name}' is incompatible with the specified BigQuery schema.") from e
+                except Exception as e:
+                    logger.error(f"An unexpected error occurred while checking column '{col_name}': {e}")
+                    raise
+            logger.info("All columns in the explicit schema passed the diagnostic check.")
+        else:
+            logger.warning("No explicit schema found in load_job_config. Skipping diagnostic check.")
+        # --- End of temporary debugging code ---
+
         load_job = bq_client.load_table_from_dataframe(df, staging_ref, job_config=load_job_config)
         load_job.result() # Wait for the load to complete
         logger.info(f"Loaded {len(df)} rows to staging table.")
