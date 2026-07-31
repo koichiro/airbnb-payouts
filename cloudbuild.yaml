@@ -10,7 +10,7 @@ steps:
       - --service-account=${_SERVICE_ACCOUNT_EMAIL}
       - --source=.
       - --no-allow-unauthenticated
-      - --update-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID},SLACK_WEBHOOK_URL=${_SLACK_WEBHOOK_URL}
+      - --update-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID}
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -21,4 +21,3 @@ substitutions:
   _BQ_TABLE_ID: "REQUIRED_SET_IN_TRIGGER_UI"
   _SERVICE_NAME: "airbnb-payouts-importer"
   _SERVICE_ACCOUNT_EMAIL: "REQUIRED_SET_IN_TRIGGER_UI"
-  _SLACK_WEBHOOK_URL: ""

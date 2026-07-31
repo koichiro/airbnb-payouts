@@ -96,9 +96,12 @@ PROJECT_ID=your-project-id \
 SERVICE_ACCOUNT_EMAIL=etl-runner@your-project-id.iam.gserviceaccount.com \
 BQ_DATASET_ID=airbnb_management \
 BQ_TABLE_ID=earnings_cleaned \
-SLACK_WEBHOOK_URL=https://hooks.slack.com/services/... \
 ./deploy.sh
 ```
+
+Configure `SLACK_WEBHOOK_URL` as a Cloud Run Secret Manager reference separately.
+Cloud Build and `deploy.sh` intentionally leave that setting unchanged so the
+webhook value is never passed as a build substitution or command-line value.
 
 Create or update the Eventarc trigger separately:
 
