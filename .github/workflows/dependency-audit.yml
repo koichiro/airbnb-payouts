@@ -1,0 +1,42 @@
+name: Dependency audit
+
+on:
+  pull_request:
+    paths:
+      - Gemfile
+      - Gemfile.lock
+      - .ruby-version
+      - .github/workflows/dependency-audit.yml
+  push:
+    branches:
+      - main
+    paths:
+      - Gemfile
+      - Gemfile.lock
+      - .ruby-version
+      - .github/workflows/dependency-audit.yml
+  schedule:
+    - cron: "17 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bundler-audit:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Ruby
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: .ruby-version
+
+      - name: Install bundler-audit
+        run: gem install bundler-audit --no-document
+
+      - name: Audit locked dependencies
+        run: bundle-audit check --update
