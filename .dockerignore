@@ -8,6 +8,8 @@ log
 .env
 .env.*
 session
+.session
 test
 plan
 airbnb_*.csv
+downloaded-logs-*.json

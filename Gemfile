@@ -1,7 +1,8 @@
 source "https://rubygems.org"
 
-ruby ">= 3.4"
+ruby "4.0.6"
 
+gem "cgi"
 gem "csv"
 gem "json"
 gem "rack", "~> 3.1"
