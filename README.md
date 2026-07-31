@@ -1,6 +1,6 @@
 # Airbnb Earnings to BigQuery Pipeline
 
-[![Ruby](https://img.shields.io/badge/ruby-3.4-red.svg)](https://www.ruby-lang.org/)
+[![Ruby](https://img.shields.io/badge/ruby-4.0.6-red.svg)](https://www.ruby-lang.org/)
 [![GCP](https://img.shields.io/badge/GCP-Cloud%20Run-orange.svg)](https://cloud.google.com/run)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 

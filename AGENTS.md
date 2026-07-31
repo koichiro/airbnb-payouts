@@ -74,3 +74,7 @@ Airbnb の earnings / transaction history CSV を Google Cloud Storage 経由で
 - structured CloudEvent と raw payload の両方を受け付ける
 - BigQuery へのロード前に schema で型を明示する
 - optional な通知機構は本体ロジックから分離したまま保つ
+
+## Tooling Requirements
+
+- `gh` コマンドは必ずネットワーク権限付きで実行する
