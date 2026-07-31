@@ -78,3 +78,4 @@ Airbnb の earnings / transaction history CSV を Google Cloud Storage 経由で
 ## Tooling Requirements
 
 - `gh` コマンドは必ずネットワーク権限付きで実行する
+- 公開 OSS として、GitHub の Issue と Pull Request はタイトル・本文ともに英語で作成する
