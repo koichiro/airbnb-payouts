@@ -73,7 +73,18 @@ curl http://localhost:8080/up
 bundle exec rake test
 ```
 
-### 4. Deployment
+### 4. Dependency Auditing
+
+Dependabot checks for Bundler and GitHub Actions updates every week. GitHub Actions also checks `Gemfile.lock` against the [Ruby Advisory Database](https://github.com/rubysec/ruby-advisory-db) on relevant pull requests, pushes to `main`, and a weekly schedule.
+
+Run the same vulnerability audit locally with:
+
+```bash
+gem install bundler-audit --no-document
+bundle-audit check --update
+```
+
+### 5. Deployment
 Deploy the Cloud Run service with `deploy.sh` or through Cloud Build (`cloudbuild.yaml`). Create the Eventarc trigger separately with `scripts/create_trigger.sh`.
 
 ```bash
