@@ -22,6 +22,7 @@ Airbnb CSV インポーターの主要ロジックを、ローカルで安定再
 - `BigqueryGateway`
 - `Schema`
 - `SlackNotifier`
+- Apps Script deployment artifacts（manifest、冪等性に必要な設定と処理順）
 
 対象外:
 
@@ -29,6 +30,7 @@ Airbnb CSV インポーターの主要ロジックを、ローカルで安定再
 - Eventarc 自体の動作保証
 - 実 BigQuery job の統合検証
 - 実 Slack webhook 送信確認
+- 実 Google Drive / Apps Script / GCS 間の疎通確認
 
 ## Directory Layout
 
@@ -40,6 +42,7 @@ Airbnb CSV インポーターの主要ロジックを、ローカルで安定再
 - `test/csv_transformer_test.rb`
 - `test/bigquery_gateway_test.rb`
 - `test/slack_notifier_test.rb`
+- `test/google_drive_sync_artifacts_test.rb`
 
 必要に応じて今後追加する候補:
 

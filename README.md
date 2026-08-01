@@ -15,6 +15,7 @@ This implementation is written in **Ruby** and is designed to run on **Cloud Run
 ## 🚀 Key Features
 
 * **Automated ETL**: Fully event-driven. Upload a file to GCS, and your data appears in BigQuery seconds later.
+* **Optional Google Drive Intake**: A time-driven Apps Script can move Drive CSVs into GCS with deterministic object names and create-only preconditions.
 * **Idempotency (Smart Upsert)**: Implements SHA256 row hashing. It uniquely identifies every entry, including payouts without confirmation codes, preventing duplicate rows when the same file is uploaded multiple times.
 * **Data Cleansing & Normalization**:
     * Maps Japanese headers to standardized English column names.
@@ -123,6 +124,12 @@ SERVICE_ACCOUNT_EMAIL=etl-runner@your-project-id.iam.gserviceaccount.com \
 4. The service cleans, stages, and merges the data into BigQuery.
 5. Receive a notification in Slack (if configured).
 6. Analyze your data in BigQuery, Google Sheets, or Looker Studio.
+
+### Optional Google Drive intake
+
+Operators can use Google Drive as an inbox in front of the existing GCS trigger. The bundled Apps Script prevents duplicate object generations with a script lock, a deterministic `drive/<file-id>/<sha256>/<filename>.csv` object path, and `ifGenerationMatch=0`. The existing BigQuery `row_id` merge remains the final row-level safeguard.
+
+See [Google Drive to Cloud Storage Sync](plan/google-drive-sync.md) for the design, least-privilege IAM setup, Apps Script configuration, end-to-end validation, retries, and rollback procedure. Direct GCS upload remains supported.
 
 ### Slack Notifications
 
