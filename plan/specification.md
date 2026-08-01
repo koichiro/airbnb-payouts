@@ -3,6 +3,7 @@
 ## Reference Architecture
 
 - Source: Airbnb からダウンロードした earnings CSV
+- Optional Intake: Google Drive + Google Apps Script
 - Landing: Google Cloud Storage
 - Trigger: Eventarc の `google.cloud.storage.object.v1.finalized`
 - Compute: Ruby 製 Cloud Run サービス
@@ -11,7 +12,7 @@
 
 処理シーケンス:
 
-1. CSV を GCS バケットへアップロード
+1. CSV を GCS バケットへ直接アップロードする、または Google Drive input folder から GAS で転送する
 2. Eventarc が Cloud Run にイベント配送
 3. Cloud Run が対象バケットとオブジェクト名を取得
 4. GCS から CSV 本文をダウンロード
@@ -70,6 +71,15 @@
 - `WHEN NOT MATCHED THEN INSERT`
 
 つまり insert-only merge とする。
+
+Google Drive intake を使用する場合は、行単位の `row_id` に加えて object 単位の冪等性を持たせる。
+
+- `LockService` で GAS の並行実行を避ける
+- `drive/<Drive file ID>/<CSV SHA-256>/<sanitized filename>.csv` を object 名とする
+- upload に `ifGenerationMatch=0` を指定し、HTTP 412 を保存済みとして扱う
+- upload 成功または 412 確認後だけ Drive file を processed folder へ移動する
+
+詳細は [google-drive-sync.md](./google-drive-sync.md) を参照する。
 
 ## BigQuery Schema Policy
 
