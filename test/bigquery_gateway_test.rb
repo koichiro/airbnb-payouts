@@ -45,6 +45,9 @@ class BigqueryGatewayTest < Minitest::Test
     def download
       StringIO.new(@content)
     end
+
+    def generation = 123
+    def created_at = Time.utc(2026, 8, 29, 4, 12, 44)
   end
 
   class FakeSchema
@@ -91,13 +94,21 @@ class BigqueryGatewayTest < Minitest::Test
   class FakeQueryJob < FakeLoadJob
     attr_reader :sql
 
-    def initialize(inserted: 1, updated: 0, supports_dml_stats: true, supports_row_counts: true, supports_affected_rows: true)
+    def initialize(
+      inserted: 1,
+      updated: 0,
+      supports_dml_stats: true,
+      supports_row_counts: true,
+      supports_affected_rows: true,
+      reconciliation_applied: true
+    )
       super()
       @inserted = inserted
       @updated = updated
       @supports_dml_stats = supports_dml_stats
       @supports_row_counts = supports_row_counts
       @supports_affected_rows = supports_affected_rows
+      @reconciliation_applied = reconciliation_applied
       @dml_stats = Struct.new(:inserted_row_count, :updated_row_count).new(inserted, updated)
     end
 
@@ -126,6 +137,10 @@ class BigqueryGatewayTest < Minitest::Test
     end
 
     def error; nil; end
+
+    def data
+      [{ applied: @reconciliation_applied }]
+    end
 
     def respond_to?(method_name, include_private = false)
       return @supports_dml_stats if method_name == :dml_stats
@@ -180,7 +195,7 @@ class BigqueryGatewayTest < Minitest::Test
     def table(name)
       @table_requests << name
       return @target_table if name == "table"
-      return @staging_table if name == "table_staging"
+      return @staging_table if name.start_with?("table_staging_")
 
       nil
     end
@@ -245,7 +260,11 @@ class BigqueryGatewayTest < Minitest::Test
   end
 
   def test_downloads_csv_bytes_from_cloud_storage
-    assert_equal "csv", @gateway.download(bucket_name: "bucket", file_name: "file.csv")
+    downloaded_csv = @gateway.download(bucket_name: "bucket", file_name: "file.csv")
+
+    assert_equal "csv", downloaded_csv.content
+    assert_equal 123, downloaded_csv.generation
+    assert_equal Time.utc(2026, 8, 29, 4, 12, 44), downloaded_csv.created_at
     assert_equal ["bucket"], @storage.bucket_calls
   end
 
@@ -268,10 +287,12 @@ class BigqueryGatewayTest < Minitest::Test
     assert_equal 0, result[:updated_count]
 
     assert_equal 1, bigquery.copy_job_calls.length
-    assert_equal "project.dataset.table_staging", bigquery.copy_job_calls.first[:source]
+    staging_table_id = dataset.load_job_calls.first.first
+    assert_match(/\Atable_staging_\h{16}\z/, staging_table_id)
+    assert_equal "project.dataset.#{staging_table_id}", bigquery.copy_job_calls.first[:source]
     assert_equal "project.dataset.table", bigquery.copy_job_calls.first[:destination]
     assert_empty bigquery.query_job_calls
-    assert dataset.table("table_staging").deleted
+    assert dataset.table(staging_table_id).deleted
   end
 
   def test_merges_into_an_existing_target_table
@@ -337,6 +358,89 @@ class BigqueryGatewayTest < Minitest::Test
     assert_includes json, "\"row_id\":\"abc123\""
   end
 
+  def test_uses_a_unique_staging_table_for_each_import
+    @gateway.load_and_merge!(rows: @rows)
+    @gateway.load_and_merge!(rows: @rows)
+
+    staging_table_ids = @dataset.load_job_calls.map(&:first)
+    assert_equal 2, staging_table_ids.uniq.length
+    assert staging_table_ids.all? { |name| name.match?(/\Atable_staging_\h{16}\z/) }
+  end
+
+  def test_reports_current_snapshot_changes_without_applying_them_in_dry_run_mode
+    snapshot = build_snapshot
+
+    result = @gateway.load_and_merge!(rows: @rows, snapshot:)
+
+    assert_equal :dry_run, result[:current_state]
+    assert_equal 1, @bigquery.query_job_calls.length
+  end
+
+  def test_reconciles_the_current_table_by_event_year_in_apply_mode
+    gateway = AirbnbPayous::BigqueryGateway.new(
+      project_id: "project",
+      dataset_id: "dataset",
+      table_id: "table",
+      logger: @logger,
+      bigquery: @bigquery,
+      storage: @storage,
+      reconciliation_mode: "apply"
+    )
+    snapshot = build_snapshot
+
+    result = gateway.load_and_merge!(rows: @rows, snapshot:)
+
+    assert_equal :applied, result[:current_state]
+    assert_equal 2, @bigquery.query_job_calls.length
+
+    reconciliation_sql = @bigquery.query_job_calls.last
+    assert_includes reconciliation_sql, "CREATE TABLE IF NOT EXISTS `project.dataset.table_current`"
+    assert_includes reconciliation_sql, "CREATE TABLE IF NOT EXISTS `project.dataset.table_snapshot_state`"
+    assert_includes reconciliation_sql, "EXTRACT(YEAR FROM event_date) = 2026"
+    assert_includes reconciliation_sql, "snapshot_id = '#{"a" * 64}'"
+    assert_includes reconciliation_sql, "snapshot_through >= DATE '2026-03-12'"
+    assert_includes reconciliation_sql, "snapshot_through > DATE '2026-03-12'"
+    assert_includes reconciliation_sql, "source_created_at > TIMESTAMP '2026-03-13T04:05:06.000000Z'"
+    assert_includes reconciliation_sql, "source_generation >= 123"
+    assert_includes reconciliation_sql, "INSERT INTO `project.dataset.table_current`"
+  end
+
+  def test_reports_when_an_older_snapshot_is_skipped
+    bigquery = FakeBigquery.new(
+      dataset: @dataset,
+      query_job: FakeQueryJob.new(reconciliation_applied: false)
+    )
+    gateway = AirbnbPayous::BigqueryGateway.new(
+      project_id: "project",
+      dataset_id: "dataset",
+      table_id: "table",
+      logger: @logger,
+      bigquery:,
+      storage: @storage,
+      reconciliation_mode: "apply"
+    )
+
+    result = gateway.load_and_merge!(rows: @rows, snapshot: build_snapshot)
+
+    assert_equal :skipped, result[:current_state]
+  end
+
+  def test_rejects_an_unknown_reconciliation_mode
+    error = assert_raises(ArgumentError) do
+      AirbnbPayous::BigqueryGateway.new(
+        project_id: "project",
+        dataset_id: "dataset",
+        table_id: "table",
+        logger: @logger,
+        bigquery: @bigquery,
+        storage: @storage,
+        reconciliation_mode: "unknown"
+      )
+    end
+
+    assert_includes error.message, "CURRENT_STATE_MODE"
+  end
+
   def test_creates_dataset_when_it_does_not_already_exist
     created_dataset = FakeDataset.new(target_table: @target_table, staging_table: FakeTable.new)
     bigquery = FakeBigquery.new(dataset: nil, created_dataset: created_dataset)
@@ -374,5 +478,26 @@ class BigqueryGatewayTest < Minitest::Test
 
   def test_returns_fully_qualified_table_names
     assert_equal "project.dataset.table", @gateway.qualified_table_name("table")
+  end
+
+  private
+
+  def build_snapshot
+    Struct.new(
+      :id,
+      :event_year,
+      :through_date,
+      :source_generation,
+      :source_created_at,
+      :row_count,
+      keyword_init: true
+    ).new(
+      id: "a" * 64,
+      event_year: 2026,
+      through_date: Date.new(2026, 3, 12),
+      source_generation: 123,
+      source_created_at: Time.utc(2026, 3, 13, 4, 5, 6),
+      row_count: 1
+    )
   end
 end

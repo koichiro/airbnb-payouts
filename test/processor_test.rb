@@ -32,8 +32,8 @@ class ProcessorTest < Minitest::Test
       @csv
     end
 
-    def load_and_merge!(rows:)
-      @load_calls << { rows: rows }
+    def load_and_merge!(rows:, snapshot: nil)
+      @load_calls << { rows: rows, snapshot: snapshot }
       @result
     end
   end
@@ -75,8 +75,8 @@ class ProcessorTest < Minitest::Test
 
     assert_equal [{ bucket_name: "bucket", file_name: "file.csv" }], @gateway.download_calls
     assert_equal "csv", @transformer.received_csv
-    assert_equal [{ rows: @rows }], @gateway.load_calls
-    
+    assert_equal [{ rows: @rows, snapshot: nil }], @gateway.load_calls
+
     assert_equal 1, @notifier.success_calls.length
     assert_equal "file.csv", @notifier.success_calls.first[:file_name]
     assert_equal :merge, @notifier.success_calls.first[:mode]
@@ -88,6 +88,28 @@ class ProcessorTest < Minitest::Test
     assert_includes @log_output.string, "Executing from structured CloudEvent payload"
     assert_equal [{ bucket_name: "bucket", file_name: "file.csv" }], @gateway.download_calls
     assert_equal 1, @notifier.success_calls.length
+  end
+
+  def test_passes_cumulative_snapshot_metadata_to_the_gateway
+    downloaded_csv = AirbnbPayous::BigqueryGateway::DownloadedCsv.new(
+      content: "csv",
+      generation: 123,
+      created_at: Time.utc(2026, 8, 29, 4, 12, 44)
+    )
+    gateway = FakeGateway.new(csv: downloaded_csv)
+    processor = AirbnbPayous::Processor.new(
+      transformer: @transformer,
+      gateway:,
+      notifier: @notifier,
+      logger: @logger
+    )
+
+    processor.call({ "bucket" => "bucket", "name" => "airbnb_01_2026-08_2026.csv" })
+
+    snapshot = gateway.load_calls.first[:snapshot]
+    assert_equal 2026, snapshot.event_year
+    assert_equal Date.new(2026, 8, 31), snapshot.through_date
+    assert_equal 123, snapshot.source_generation
   end
 
   def test_skips_non_csv_files

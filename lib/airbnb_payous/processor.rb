@@ -3,6 +3,7 @@
 require "logger"
 
 require_relative "bigquery_gateway"
+require_relative "cumulative_snapshot"
 require_relative "csv_transformer"
 require_relative "slack_notifier"
 
@@ -30,9 +31,16 @@ module AirbnbPayous
         return nil
       end
 
-      csv_content = @gateway.download(bucket_name:, file_name:)
+      downloaded_csv = @gateway.download(bucket_name:, file_name:)
+      csv_content = downloaded_csv.respond_to?(:content) ? downloaded_csv.content : downloaded_csv
       rows = @transformer.call(csv_content)
-      result = @gateway.load_and_merge!(rows:)
+      snapshot = build_cumulative_snapshot(
+        file_name:,
+        csv_content:,
+        rows:,
+        downloaded_csv:
+      )
+      result = @gateway.load_and_merge!(rows:, snapshot:)
 
       @notifier.notify_success(
         file_name: file_name,
@@ -49,6 +57,18 @@ module AirbnbPayous
     end
 
     private
+
+    def build_cumulative_snapshot(file_name:, csv_content:, rows:, downloaded_csv:)
+      return nil unless downloaded_csv.respond_to?(:generation) && downloaded_csv.respond_to?(:created_at)
+
+      CumulativeSnapshot.build(
+        file_name:,
+        content: csv_content,
+        rows:,
+        source_generation: downloaded_csv.generation,
+        source_created_at: downloaded_csv.created_at
+      )
+    end
 
     def extract_event_data(event_payload)
       if event_payload.key?("data") && event_payload["data"].is_a?(Hash)

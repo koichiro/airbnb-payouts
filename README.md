@@ -43,6 +43,7 @@ The pipeline is controlled via environment variables in Cloud Run.
 | `GCP_PROJECT_ID` | Your Google Cloud Project ID. | - |
 | `BQ_DATASET_ID` | Destination BigQuery dataset ID. | `airbnb_management` |
 | `BQ_TABLE_ID` | Destination BigQuery table ID. | `earnings_cleaned` |
+| `CURRENT_STATE_MODE` | Annual cumulative snapshot handling: `off`, `dry_run`, or `apply`. | `dry_run` |
 | `PORT` | HTTP port used by Cloud Run. | `8080` |
 
 ## 🛠 Setup & Deployment
@@ -97,6 +98,7 @@ PROJECT_ID=your-project-id \
 SERVICE_ACCOUNT_EMAIL=etl-runner@your-project-id.iam.gserviceaccount.com \
 BQ_DATASET_ID=airbnb_management \
 BQ_TABLE_ID=earnings_cleaned \
+CURRENT_STATE_MODE=dry_run \
 ./deploy.sh
 ```
 
@@ -125,6 +127,23 @@ SERVICE_ACCOUNT_EMAIL=etl-runner@your-project-id.iam.gserviceaccount.com \
 5. Receive a notification in Slack (if configured).
 6. Analyze your data in BigQuery, Google Sheets, or Looker Studio.
 
+### Current-state table
+
+The primary `${BQ_TABLE_ID}` table remains an append-only audit history keyed by
+`row_id`. When `CURRENT_STATE_MODE=apply`, recognized annual cumulative exports
+also replace the matching event-year slice in `${BQ_TABLE_ID}_current`. This
+keeps corrected or removed rows from being double counted without guessing a
+natural transaction key.
+
+The importer records the latest accepted snapshot for each event year in
+`${BQ_TABLE_ID}_snapshot_state`. Older deliveries cannot roll the current table
+back. Files that do not match the cumulative Airbnb filename convention are
+still loaded into the audit table but do not affect current state.
+
+Keep `CURRENT_STATE_MODE=dry_run` during initial rollout. See
+[Current-state reconciliation](plan/current-state-reconciliation.md) for the
+authority rules, migration, verification, and rollback procedure.
+
 ### Optional Google Drive intake
 
 Operators can use Google Drive as an inbox in front of the existing GCS trigger. The bundled Apps Script prevents duplicate object generations with a script lock, a deterministic `drive/<file-id>/<sha256>/<filename>.csv` object path, and `ifGenerationMatch=0`. The existing BigQuery `row_id` merge remains the final row-level safeguard.
@@ -141,6 +160,7 @@ When `SLACK_WEBHOOK_URL` is provided, the pipeline sends a rich attachment messa
 ## Notes
 
 * Like the original implementation, this project uses a staging table and then performs a `MERGE` into the target table.
+* Staging table names are unique per request so concurrent Eventarc deliveries cannot overwrite one another.
 * Like the original implementation, if Airbnb introduces a new column and your target BigQuery table schema is not updated, the merge can fail until the schema is aligned.
 * The service entrypoint is HTTP-based because Cloud Run receives events through Eventarc rather than Cloud Functions-style `event, context` handlers.
 
