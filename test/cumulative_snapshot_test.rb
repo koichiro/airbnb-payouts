@@ -47,6 +47,19 @@ class CumulativeSnapshotTest < Minitest::Test
     assert_nil snapshot
   end
 
+  def test_normalizes_a_datetime_storage_timestamp_to_utc_time
+    snapshot = AirbnbPayous::CumulativeSnapshot.build(
+      file_name: "airbnb_01_2026-08_2026.csv",
+      content: "csv-content",
+      rows: rows_for(Date.new(2026, 8, 27)),
+      source_generation: 123,
+      source_created_at: DateTime.iso8601("2026-08-29T13:12:44+09:00")
+    )
+
+    assert_instance_of Time, snapshot.source_created_at
+    assert_equal Time.utc(2026, 8, 29, 4, 12, 44), snapshot.source_created_at
+  end
+
   def test_rejects_multiple_event_years
     error = assert_raises(ArgumentError) do
       AirbnbPayous::CumulativeSnapshot.build(
