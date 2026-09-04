@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "securerandom"
 require "tempfile"
 
 require "google/cloud/bigquery"
@@ -10,14 +11,29 @@ require_relative "schema"
 
 module AirbnbPayous
   class BigqueryGateway
-    attr_reader :project_id, :dataset_id, :table_id, :staging_table_id
+    DownloadedCsv = Data.define(:content, :generation, :created_at)
 
-    def initialize(project_id:, dataset_id:, table_id:, logger: Logger.new($stdout), bigquery: nil, storage: nil)
+    RECONCILIATION_MODES = %w[off dry_run apply].freeze
+
+    attr_reader :project_id, :dataset_id, :table_id, :current_table_id, :snapshot_state_table_id,
+      :reconciliation_mode
+
+    def initialize(
+      project_id:,
+      dataset_id:,
+      table_id:,
+      logger: Logger.new($stdout),
+      bigquery: nil,
+      storage: nil,
+      reconciliation_mode: ENV.fetch("CURRENT_STATE_MODE", "dry_run")
+    )
       @logger = logger
       @project_id = project_id
       @dataset_id = dataset_id
       @table_id = table_id
-      @staging_table_id = "#{table_id}_staging"
+      @current_table_id = "#{table_id}_current"
+      @snapshot_state_table_id = "#{table_id}_snapshot_state"
+      @reconciliation_mode = reconciliation_mode
 
       @logger.info("Initializing BigqueryGateway with project_id: #{@project_id.inspect}, dataset_id: #{@dataset_id.inspect}, table_id: #{@table_id.inspect}")
 
@@ -33,6 +49,10 @@ module AirbnbPayous
         raise ArgumentError, "table_id is required"
       end
 
+      unless RECONCILIATION_MODES.include?(@reconciliation_mode)
+        raise ArgumentError, "CURRENT_STATE_MODE must be one of: #{RECONCILIATION_MODES.join(", ")}"
+      end
+
       @bigquery = bigquery || Google::Cloud::Bigquery.new(project_id: @project_id)
       @storage = storage || Google::Cloud::Storage.new(project_id: @project_id)
     end
@@ -40,12 +60,17 @@ module AirbnbPayous
     def download(bucket_name:, file_name:)
       bucket = @storage.bucket(bucket_name)
       file = bucket.file(file_name)
-      file.download.string
+      DownloadedCsv.new(
+        content: file.download.string,
+        generation: file.generation,
+        created_at: file.created_at
+      )
     end
 
-    def load_and_merge!(rows:)
+    def load_and_merge!(rows:, snapshot: nil)
       dataset = @bigquery.dataset(dataset_id) || @bigquery.create_dataset(dataset_id)
       temp_file = build_tempfile(rows)
+      staging_table_id = unique_staging_table_id
 
       load_job = dataset.load_job(
         staging_table_id,
@@ -86,7 +111,7 @@ module AirbnbPayous
         result[:inserted_count] = total_rows_loaded
       else
         @logger.info("Target table #{qualified_table_name(table_id)} exists. Path: :merge")
-        merge_sql = build_merge_query(rows.first.keys)
+        merge_sql = build_merge_query(rows.first.keys, staging_table_id:)
         query_job = @bigquery.query_job(merge_sql)
         @logger.info("Started query_job (ID: #{query_job.job_id}). Waiting for completion...")
         query_job.wait_until_done!
@@ -96,12 +121,18 @@ module AirbnbPayous
 
         result[:mode] = :merge
       end
-      
+
+      result[:current_state] = reconcile_current_snapshot(
+        staging_table_id:,
+        columns: rows.first.keys,
+        snapshot:
+      )
+
       @logger.info("Final result for notification: #{result.inspect}")
       result
     ensure
       temp_file&.close!
-      delete_staging_table(dataset)
+      delete_staging_table(dataset, staging_table_id)
     end
 
     def qualified_table_name(table_name)
@@ -148,7 +179,7 @@ module AirbnbPayous
       mode == :required ? :required : :nullable
     end
 
-    def build_merge_query(columns)
+    def build_merge_query(columns, staging_table_id:)
       columns_list = columns.map { |column| "`#{column}`" }.join(", ")
       source_columns_list = columns.map { |column| "S.`#{column}`" }.join(", ")
 
@@ -159,6 +190,116 @@ module AirbnbPayous
         WHEN NOT MATCHED THEN
           INSERT (#{columns_list}) VALUES (#{source_columns_list})
       SQL
+    end
+
+    def reconcile_current_snapshot(staging_table_id:, columns:, snapshot:)
+      return :off if snapshot.nil? || reconciliation_mode == "off"
+
+      @logger.info(
+        "Current-state reconciliation candidate: event_year=#{snapshot.event_year}, " \
+        "through_date=#{snapshot.through_date}, row_count=#{snapshot.row_count}, " \
+        "snapshot_id=#{snapshot.id[0, 12]}, mode=#{reconciliation_mode}."
+      )
+      return :dry_run if reconciliation_mode == "dry_run"
+
+      query_job = @bigquery.query_job(
+        build_current_reconciliation_query(columns, staging_table_id:, snapshot:)
+      )
+      query_job.wait_until_done!
+      raise query_job.error if query_job.failed?
+
+      result_row = query_job.data&.first
+      applied = result_row && (result_row[:applied] || result_row["applied"])
+      status = applied ? :applied : :skipped
+      @logger.info(
+        "Current-state reconciliation #{status} for event_year=#{snapshot.event_year}."
+      )
+      status
+    end
+
+    def build_current_reconciliation_query(columns, staging_table_id:, snapshot:)
+      columns_list = columns.map { |column| "`#{column}`" }.join(", ")
+      generation = Integer(snapshot.source_generation)
+      created_at = snapshot.source_created_at.utc.iso8601(6)
+
+      <<~SQL
+        DECLARE should_apply BOOL;
+
+        CREATE TABLE IF NOT EXISTS `#{qualified_table_name(current_table_id)}`
+        LIKE `#{qualified_table_name(table_id)}`;
+
+        CREATE TABLE IF NOT EXISTS `#{qualified_table_name(snapshot_state_table_id)}` (
+          event_year INT64,
+          snapshot_id STRING,
+          snapshot_through DATE,
+          source_created_at TIMESTAMP,
+          source_generation INT64,
+          row_count INT64,
+          applied_at TIMESTAMP
+        );
+
+        SET should_apply = NOT EXISTS (
+          SELECT 1
+          FROM `#{qualified_table_name(snapshot_state_table_id)}`
+          WHERE event_year = #{snapshot.event_year}
+            AND (
+              (
+                snapshot_id = '#{snapshot.id}'
+                AND snapshot_through >= DATE '#{snapshot.through_date.iso8601}'
+              )
+              OR snapshot_through > DATE '#{snapshot.through_date.iso8601}'
+              OR (
+                snapshot_through = DATE '#{snapshot.through_date.iso8601}'
+                AND source_created_at > TIMESTAMP '#{created_at}'
+              )
+              OR (
+                snapshot_through = DATE '#{snapshot.through_date.iso8601}'
+                AND source_created_at = TIMESTAMP '#{created_at}'
+                AND source_generation >= #{generation}
+              )
+            )
+        );
+
+        IF should_apply THEN
+          BEGIN TRANSACTION;
+
+          DELETE FROM `#{qualified_table_name(current_table_id)}`
+          WHERE EXTRACT(YEAR FROM event_date) = #{snapshot.event_year};
+
+          INSERT INTO `#{qualified_table_name(current_table_id)}` (#{columns_list})
+          SELECT #{columns_list}
+          FROM `#{qualified_table_name(staging_table_id)}`;
+
+          DELETE FROM `#{qualified_table_name(snapshot_state_table_id)}`
+          WHERE event_year = #{snapshot.event_year};
+
+          INSERT INTO `#{qualified_table_name(snapshot_state_table_id)}` (
+            event_year,
+            snapshot_id,
+            snapshot_through,
+            source_created_at,
+            source_generation,
+            row_count,
+            applied_at
+          ) VALUES (
+            #{snapshot.event_year},
+            '#{snapshot.id}',
+            DATE '#{snapshot.through_date.iso8601}',
+            TIMESTAMP '#{created_at}',
+            #{generation},
+            #{snapshot.row_count},
+            CURRENT_TIMESTAMP()
+          );
+
+          COMMIT TRANSACTION;
+        END IF;
+
+        SELECT should_apply AS applied;
+      SQL
+    end
+
+    def unique_staging_table_id
+      "#{table_id}_staging_#{SecureRandom.hex(8)}"
     end
 
     def extract_dml_counts(query_job)
@@ -193,8 +334,8 @@ module AirbnbPayous
       nil
     end
 
-    def delete_staging_table(dataset)
-      return if dataset.nil?
+    def delete_staging_table(dataset, staging_table_id)
+      return if dataset.nil? || staging_table_id.nil?
 
       staging_table = dataset.table(staging_table_id)
       staging_table&.delete

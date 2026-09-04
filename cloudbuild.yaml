@@ -10,7 +10,7 @@ steps:
       - --service-account=${_SERVICE_ACCOUNT_EMAIL}
       - --source=.
       - --no-allow-unauthenticated
-      - --update-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID}
+      - --update-env-vars=GCP_PROJECT_ID=${PROJECT_ID},BQ_DATASET_ID=${_BQ_DATASET_ID},BQ_TABLE_ID=${_BQ_TABLE_ID},CURRENT_STATE_MODE=${_CURRENT_STATE_MODE}
 
 options:
   logging: CLOUD_LOGGING_ONLY
@@ -21,3 +21,4 @@ substitutions:
   _BQ_TABLE_ID: "REQUIRED_SET_IN_TRIGGER_UI"
   _SERVICE_NAME: "airbnb-payouts-importer"
   _SERVICE_ACCOUNT_EMAIL: "REQUIRED_SET_IN_TRIGGER_UI"
+  _CURRENT_STATE_MODE: "dry_run"

@@ -43,6 +43,11 @@ Airbnb の earnings CSV を GCS アップロード契機で自動処理し、分
 - 本番テーブルが未作成なら staging table から作成できること
 - 本番テーブルが既存なら `row_id` をキーに `MERGE` できること
 - 同じ行を再投入しても重複行が増えないこと
+- 監査用の本番テーブルは insert-only のまま保持すること
+- 年次累積CSVは対象年の current-state table を置換できること
+- 古いスナップショットの再配送で current-state table が巻き戻らないこと
+- 自然キーを推測して異なる取引を統合しないこと
+- 並行取り込みが同じ staging table を共有しないこと
 
 ### Observability
 
@@ -71,6 +76,7 @@ Airbnb の earnings CSV を GCS アップロード契機で自動処理し、分
 - 環境変数で GCP project、dataset、table、port を切り替えられること
 - ローカル実行と自動テストが可能であること
 - 失敗したファイルを再投入してリカバリできること
+- current-state reconciliation は `off` / `dry_run` / `apply` を切り替えられること
 - `bundle exec rake test` でフルテストを実行できること
 - テストフレームワークは `Minitest` を採用すること
 - コードカバレッジは 80% 以上を維持すること
