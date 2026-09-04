@@ -24,7 +24,7 @@ module AirbnbPayous
 
       warn_unmapped_columns if unmapped_source_columns.any?
 
-      raw_rows = rows.map do |row|
+      raw_rows = rows.map.with_index(2) do |row, csv_row_number|
         normalized_row = {}
 
         normalized_headers.each do |header|
@@ -33,7 +33,7 @@ module AirbnbPayous
           normalized_row[normalized_key] = normalize_cell(value)
         end
 
-        normalize_types!(normalized_row)
+        normalize_types!(normalized_row, csv_row_number:)
         normalized_row
       end
 
@@ -67,13 +67,13 @@ module AirbnbPayous
       stripped.empty? ? nil : stripped
     end
 
-    def normalize_types!(row)
+    def normalize_types!(row, csv_row_number:)
       Schema::DATE_COLUMNS.each do |column|
         row[column] = parse_date(row[column]) if row.key?(column)
       end
 
       Schema::NUMERIC_COLUMNS.each do |column|
-        row[column] = parse_decimal(row[column]) if row.key?(column)
+        row[column] = parse_decimal(row[column], column:, csv_row_number:) if row.key?(column)
       end
 
       Schema::INTEGER_COLUMNS.each do |column|
@@ -89,13 +89,35 @@ module AirbnbPayous
       nil
     end
 
-    def parse_decimal(value)
+    def parse_decimal(value, column:, csv_row_number:)
       return nil if value.nil?
 
-      decimal = BigDecimal(value.to_s)
-      decimal.finite? ? decimal : nil
-    rescue ArgumentError
+      normalized_value = normalize_grouping_separators(value.to_s)
+      decimal = BigDecimal(normalized_value)
+      return decimal if decimal.finite?
+
+      warn_invalid_numeric(column:, csv_row_number:)
       nil
+    rescue ArgumentError
+      warn_invalid_numeric(column:, csv_row_number:)
+      nil
+    end
+
+    def normalize_grouping_separators(value)
+      return value unless value.include?(",")
+
+      unless value.match?(/\A[+-]?\d{1,3}(?:,\d{3})+(?:\.\d+)?\z/)
+        raise ArgumentError, "invalid numeric grouping"
+      end
+
+      value.delete(",")
+    end
+
+    def warn_invalid_numeric(column:, csv_row_number:)
+      @logger.warn(
+        "Failed to parse non-empty numeric value; " \
+        "column=#{column}, csv_row=#{csv_row_number}. Value was replaced with NULL."
+      )
     end
 
     def parse_integer(value)
