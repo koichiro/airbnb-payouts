@@ -43,7 +43,7 @@ module AirbnbPayous
         event_year:,
         through_date: coverage_end,
         source_generation: Integer(source_generation),
-        source_created_at: source_created_at,
+        source_created_at: source_created_at.to_time.utc,
         row_count: rows.length
       )
     end
